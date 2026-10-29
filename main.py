@@ -19,6 +19,7 @@ from bridge.max_listener import run_max_listener
 from bridge.store import MessageStore
 from bridge.tg_commands import BridgeCommands, build_tg_dispatcher, run_tg_control
 from bridge.tg_sender import TelegramSender
+from bridge.user_listener import run_max_user_listener
 
 logger = logging.getLogger("bridge")
 
@@ -50,20 +51,27 @@ async def main() -> None:
         except NotImplementedError:  # pragma: no cover - Windows
             pass
 
-    listener = asyncio.create_task(
-        run_max_listener(settings, sender, store), name="max-listener"
-    )
+    if settings.mode == "user":
+        logger.info("Режим MAX: user (личный аккаунт, все диалоги)")
+        max_task = asyncio.create_task(
+            run_max_user_listener(settings, sender, store), name="max-listener"
+        )
+    else:
+        logger.info("Режим MAX: bot (официальный Bot API)")
+        max_task = asyncio.create_task(
+            run_max_listener(settings, sender, store), name="max-listener"
+        )
     control = asyncio.create_task(
         run_tg_control(sender, tg_dp), name="tg-control"
     )
 
     async def waiter() -> None:
         await stop_event.wait()
-        listener.cancel()
+        max_task.cancel()
         control.cancel()
 
     try:
-        await asyncio.gather(listener, control, waiter(), return_exceptions=True)
+        await asyncio.gather(max_task, control, waiter(), return_exceptions=True)
     finally:
         await sender.close()
         await store.close()

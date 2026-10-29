@@ -1,0 +1,7 @@
+bridge/user_client.py and bridge/user_listener.py contain code derived from
+the project "max2tg" by Aist (https://github.com/Aist/max2tg.git), which is a
+reverse-engineered client of the unofficial MAX web protocol.
+
+That project's authors and the developers of MAX messenger are not affiliated
+with this repository. Using the user-mode client may violate MAX's terms of
+service and can lead to account suspension. Use at your own risk.

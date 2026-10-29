@@ -37,6 +37,15 @@ class Settings:
 
     max_token: str
     tg_token: str
+    # Режим источника MAX: "bot" (официальный Bot API) или "user"
+    # (неофициальный WebSocket личного аккаунта — видит все личные диалоги).
+    mode: str = "bot"
+    max_user_token: str = ""
+    max_device_id: str = ""
+    # Белый список чатов для user-режима (MAX_CHAT_IDS); пусто = все.
+    user_chat_ids: frozenset[str] = frozenset()
+    # Чаты, исключённые из пересылки в user-режиме (MAX_EXCLUDE_CHAT_IDS).
+    exclude_chats: frozenset[str] = frozenset()
     # Пустой словарь маппинга означает "пересылать сообщения из всех чатов
     # в чат по умолчанию TG_CHAT_ID".
     chat_map: dict[str, int] = field(default_factory=dict)
@@ -88,6 +97,9 @@ def load_settings(env_file: str | None = None) -> Settings:
             raise ConfigError(f"Переменная окружения {name} не задана")
         return value
 
+    def optional(name: str) -> str:
+        return os.getenv(name, "").strip()
+
     def optional_int(name: str) -> int | None:
         value = os.getenv(name, "").strip()
         if not value:
@@ -102,6 +114,26 @@ def load_settings(env_file: str | None = None) -> Settings:
         if not value:
             return default
         return value in {"1", "true", "yes", "on"}
+
+    mode = optional("MAX_MODE").lower() or "auto"
+    max_token = optional("MAX_BOT_TOKEN")
+    max_user_token = optional("MAX_USER_TOKEN")
+    max_device_id = optional("MAX_DEVICE_ID")
+    if mode == "auto":
+        mode = "user" if (max_user_token and max_device_id) else "bot"
+    if mode not in {"bot", "user"}:
+        raise ConfigError(f"MAX_MODE должен быть bot или user, получено: {mode!r}")
+    if mode == "bot" and not max_token:
+        raise ConfigError("Для режима bot нужна переменная MAX_BOT_TOKEN")
+    if mode == "user" and not (max_user_token and max_device_id):
+        raise ConfigError(
+            "Для режима user нужны MAX_USER_TOKEN и MAX_DEVICE_ID "
+            "(см. README: Local Storage на web.max.ru)"
+        )
+
+    def id_list(name: str) -> frozenset[str]:
+        raw = optional(name)
+        return frozenset(x.strip() for x in raw.split(",") if x.strip()) if raw else frozenset()
 
     chat_map_raw = os.getenv("CHAT_MAP", "").strip()
     chat_map = _parse_chat_map(chat_map_raw) if chat_map_raw else {}
@@ -119,7 +151,12 @@ def load_settings(env_file: str | None = None) -> Settings:
     ) if forward_chats_raw else frozenset()
 
     return Settings(
-        max_token=required("MAX_BOT_TOKEN"),
+        max_token=max_token,
+        mode=mode,
+        max_user_token=max_user_token,
+        max_device_id=max_device_id,
+        user_chat_ids=id_list("MAX_CHAT_IDS"),
+        exclude_chats=id_list("MAX_EXCLUDE_CHAT_IDS"),
         tg_token=required("TG_BOT_TOKEN"),
         chat_map=chat_map,
         default_tg_chat=default_tg_chat,
