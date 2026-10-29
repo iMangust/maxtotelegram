@@ -43,6 +43,14 @@ class Settings:
     default_tg_chat: int | None = None
     # Разрешённые отправители для реверсивного направления (пусто = все).
     allowed_tg_user_ids: tuple[int, ...] = ()
+    # Личный Telegram-чат владельца (для команд /chats, /status и уведомлений).
+    owner_chat_id: int | None = None
+    # Личный MAX user_id владельца — его личные сообщения всегда пересылаются.
+    max_owner_user_id: int | None = None
+    # Пересылать ВСЕ групповые чаты/каналы в default_tg_chat (личный режим).
+    forward_all_chats: bool = False
+    # Ручной список чатов MAX для пересылки ("123,456"); дополняет CHAT_MAP.
+    forward_chats: frozenset[str] = frozenset()
     # Отправлять в Telegram служебные команды (/start и т.п.).
     forward_commands: bool = False
     # Тег для закреплённого сообщения с таблицей соответствия сообщений.
@@ -64,6 +72,10 @@ class Settings:
         if self.chat_map and self.default_tg_chat is None:
             return set(self.chat_map.keys())
         return None
+
+    def notify_chat(self) -> int | None:
+        """Чат Telegram, куда слать служебные уведомления (команды /chats и т.п.)."""
+        return self.owner_chat_id or self.default_tg_chat
 
 
 def load_settings(env_file: str | None = None) -> Settings:
@@ -101,12 +113,21 @@ def load_settings(env_file: str | None = None) -> Settings:
     allowed_raw = os.getenv("ALLOWED_TG_USER_IDS", "").strip()
     allowed = tuple(int(x.strip()) for x in allowed_raw.split(",") if x.strip()) if allowed_raw else ()
 
+    forward_chats_raw = os.getenv("MAX_FORWARD_CHATS", "").strip()
+    forward_chats = frozenset(
+        x.strip() for x in forward_chats_raw.split(",") if x.strip()
+    ) if forward_chats_raw else frozenset()
+
     return Settings(
         max_token=required("MAX_BOT_TOKEN"),
         tg_token=required("TG_BOT_TOKEN"),
         chat_map=chat_map,
         default_tg_chat=default_tg_chat,
         allowed_tg_user_ids=allowed,
+        owner_chat_id=optional_int("TG_OWNER_CHAT_ID"),
+        max_owner_user_id=optional_int("MAX_OWNER_USER_ID"),
+        forward_all_chats=optional_bool("FORWARD_ALL_CHATS"),
+        forward_chats=forward_chats,
         forward_commands=optional_bool("FORWARD_COMMANDS"),
         pinned_tag=os.getenv("PINNED_TAG", "").strip(),
         debug=optional_bool("DEBUG"),

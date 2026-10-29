@@ -17,6 +17,7 @@ import signal
 from bridge.config import ConfigError, load_settings
 from bridge.max_listener import run_max_listener
 from bridge.store import MessageStore
+from bridge.tg_commands import BridgeCommands, build_tg_dispatcher, run_tg_control
 from bridge.tg_sender import TelegramSender
 
 logger = logging.getLogger("bridge")
@@ -38,6 +39,9 @@ async def main() -> None:
     await store.connect()
     sender = TelegramSender(settings.tg_token)
 
+    bridge = BridgeCommands(settings, store)
+    tg_dp = build_tg_dispatcher(bridge)
+
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
@@ -49,13 +53,17 @@ async def main() -> None:
     listener = asyncio.create_task(
         run_max_listener(settings, sender, store), name="max-listener"
     )
+    control = asyncio.create_task(
+        run_tg_control(sender, tg_dp), name="tg-control"
+    )
 
     async def waiter() -> None:
         await stop_event.wait()
         listener.cancel()
+        control.cancel()
 
     try:
-        await asyncio.gather(listener, waiter(), return_exceptions=True)
+        await asyncio.gather(listener, control, waiter(), return_exceptions=True)
     finally:
         await sender.close()
         await store.close()

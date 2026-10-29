@@ -21,11 +21,24 @@ CREATE TABLE IF NOT EXISTS message_map (
     created_at   TEXT DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_tg_msg ON message_map (tg_msg_id);
+CREATE TABLE IF NOT EXISTS known_chats (
+    chat_id      TEXT PRIMARY KEY,
+    title        TEXT,
+    kind         TEXT DEFAULT 'chat',
+    added_at     TEXT DEFAULT (datetime('now')),
+    last_seen_at TEXT
+);
 """
 
 
 class MessageStore:
-    """Двустороннее отображение идентификаторов сообщений."""
+    """Двустороннее отображение идентификаторов сообщений + реестр чатов MAX.
+
+    Таблица ``known_chats`` решает ограничение Bot API MAX: с июня 2026 года
+    ``GET /chats`` не поддерживается и готового списка чатов нет — бот должен
+    накапливать ``chat_id`` сам из событий ``bot_added`` / ``bot_started`` /
+    ``message_created`` (см. докстринг ``maxapi.methods.get_chats``).
+    """
 
     def __init__(self, db_path: str = "bridge.db") -> None:
         self._db_path = db_path
@@ -33,7 +46,15 @@ class MessageStore:
 
     async def connect(self) -> None:
         self._db = await aiosqlite.connect(self._db_path)
+        # Совместимость со старыми базами: добавляем колонки, если их нет.
         await self._db.executescript(_SCHEMA)
+        for col, decl in (("title", "TEXT"), ("kind", "TEXT DEFAULT 'chat'")):
+            try:
+                await self._db.execute(
+                    f"ALTER TABLE known_chats ADD COLUMN {col} {decl}"
+                )
+            except aiosqlite.OperationalError:
+                pass  # колонка уже есть
         await self._db.commit()
 
     async def close(self) -> None:
@@ -85,3 +106,45 @@ class MessageStore:
         async with self._conn.execute("SELECT COUNT(*) FROM message_map") as cursor:
             row = await cursor.fetchone()
         return int(row[0]) if row else 0
+
+    # --- Реестр чатов MAX ----------------------------------------------------
+
+    async def remember_chat(
+        self, chat_id: str | int, title: str | None = None, kind: str = "chat"
+    ) -> None:
+        """Заносит (или обновляет) чат MAX в реестр известных чатов."""
+        await self._conn.execute(
+            """
+            INSERT INTO known_chats (chat_id, title, kind, last_seen_at)
+            VALUES (?, ?, ?, datetime('now'))
+            ON CONFLICT(chat_id) DO UPDATE SET
+                last_seen_at = datetime('now'),
+                title        = COALESCE(excluded.title, known_chats.title),
+                kind         = excluded.kind
+            """,
+            (str(chat_id), title, kind),
+        )
+        await self._conn.commit()
+
+    async def forget_chat(self, chat_id: str | int) -> None:
+        """Убирает чат из реестра (события bot_removed / bot_stopped)."""
+        await self._conn.execute(
+            "DELETE FROM known_chats WHERE chat_id = ?", (str(chat_id),)
+        )
+        await self._conn.commit()
+
+    async def known_chat_ids(self) -> set[str]:
+        async with self._conn.execute("SELECT chat_id FROM known_chats") as cursor:
+            rows = await cursor.fetchall()
+        return {str(row[0]) for row in rows}
+
+    async def list_chats(self) -> list[tuple[str, str | None, str, str | None]]:
+        """Возвращает [(chat_id, title, kind, last_seen_at), ...]."""
+        async with self._conn.execute(
+            "SELECT chat_id, title, kind, last_seen_at FROM known_chats"
+            " ORDER BY added_at"
+        ) as cursor:
+            rows = await cursor.fetchall()
+        return [
+            (str(r[0]), r[1], r[2] or "chat", r[3]) for r in rows
+        ]

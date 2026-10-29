@@ -51,6 +51,15 @@ class TelegramSender:
     async def close(self) -> None:
         await self.bot.session.close()
 
+    async def send_plain(self, chat_id: int, text_html: str) -> int | None:
+        """Служебное сообщение без тега пересылки (ответ на команду, уведомление)."""
+        try:
+            sent = await self.bot.send_message(chat_id=chat_id, text=text_html)
+            return sent.message_id
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Telegram: не удалось отправить служебное сообщение в %s: %s", chat_id, exc)
+            return None
+
     async def send_forwarded(
         self,
         chat_id: int,
