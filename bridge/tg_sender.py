@@ -43,10 +43,14 @@ class TelegramSender:
     """Обёртка над aiogram.Bot для пересылки сообщений из MAX."""
 
     def __init__(self, token: str) -> None:
+        self._token = token  # приватно: не попадает в repr/логи
         self.bot = Bot(
             token=token,
             default=DefaultBotProperties(parse_mode=ParseMode.HTML),
         )
+
+    def __repr__(self) -> str:  # защита от случайного дампа секрета
+        return "<TelegramSender token=***>"
 
     async def close(self) -> None:
         await self.bot.session.close()

@@ -24,12 +24,13 @@ def _settings(**env):
 def _clean_env(monkeypatch):
     for var in ("MAX_MODE", "MAX_BOT_TOKEN", "MAX_USER_TOKEN", "MAX_DEVICE_ID",
                 "TG_BOT_TOKEN", "TG_CHAT_ID", "CHAT_MAP", "MAX_CHAT_IDS",
-                "MAX_EXCLUDE_CHAT_IDS", "BRIDGE_DOTENV"):
+                "MAX_EXCLUDE_CHAT_IDS", "BRIDGE_DOTENV", "USER_MODE_ACK",
+                "MAX_USER_TOKEN_FILE"):
         monkeypatch.delenv(var, raising=False)
 
 
 def test_auto_mode_selects_user():
-    s = _settings(MAX_USER_TOKEN="t", MAX_DEVICE_ID="d",
+    s = _settings(MAX_USER_TOKEN="t", MAX_DEVICE_ID="d", USER_MODE_ACK="yes",
                   TG_BOT_TOKEN="x", TG_CHAT_ID="123")
     assert s.mode == "user"
     assert s.max_user_token == "t" and s.max_device_id == "d"
@@ -43,6 +44,36 @@ def test_auto_mode_falls_back_to_bot():
 def test_explicit_user_mode_requires_creds():
     with pytest.raises(ConfigError):
         _settings(MAX_MODE="user", TG_BOT_TOKEN="x", TG_CHAT_ID="123")
+
+
+def test_user_mode_requires_ack():
+    # Без явного согласия USER_MODE_ACK запуск в user-режиме запрещён.
+    with pytest.raises(ConfigError, match="USER_MODE_ACK"):
+        _settings(MAX_USER_TOKEN="t", MAX_DEVICE_ID="d",
+                  TG_BOT_TOKEN="x", TG_CHAT_ID="123")
+
+
+def test_user_token_from_file(tmp_path):
+    secret = tmp_path / "max_token.txt"
+    secret.write_text("  file-token  \n")
+    secret.chmod(0o600)
+    s = _settings(MAX_USER_TOKEN_FILE=str(secret), MAX_DEVICE_ID="d",
+                  USER_MODE_ACK="yes", TG_BOT_TOKEN="x", TG_CHAT_ID="123")
+    assert s.mode == "user" and s.max_user_token == "file-token"
+
+
+def test_user_token_file_missing_raises(tmp_path):
+    with pytest.raises(ConfigError, match="MAX_USER_TOKEN_FILE"):
+        _settings(MAX_USER_TOKEN_FILE=str(tmp_path / "nope.txt"),
+                  MAX_DEVICE_ID="d", USER_MODE_ACK="yes",
+                  TG_BOT_TOKEN="x", TG_CHAT_ID="123")
+
+
+def test_repr_hides_secrets():
+    c = MaxUserClient(token="super-secret-token", device_id="dev1")
+    assert "super-secret" not in repr(c)
+    assert "super-secret" not in str(c)
+    assert c.token == "super-secret-token"
 
 
 def test_parse_message_and_is_self():

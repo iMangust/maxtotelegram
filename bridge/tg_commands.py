@@ -41,7 +41,12 @@ class BridgeCommands:
 
     def is_allowed(self, user_id: int | None) -> bool:
         if not self.settings.allowed_tg_user_ids:
-            return True  # личная установка: по умолчанию доверяем всем в приватных чатах
+            # Личная установка без белого списка: доверяем только владельцу —
+            # приватному чату с TG_CHAT_ID (или TG_OWNER_CHAT_ID, если задан).
+            owner = self.settings.owner_chat_id or self.settings.default_tg_chat
+            if owner is None:
+                return False
+            return user_id == owner
         return user_id in self.settings.allowed_tg_user_ids
 
     def _apply(self) -> None:

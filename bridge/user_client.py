@@ -112,7 +112,9 @@ class MaxUserClient:
     RECONNECT_SEC = 5
 
     def __init__(self, token: str, device_id: str) -> None:
-        self.token = token
+        # Храним токен приватно: случайный дамп объекта (repr/log) не должен
+        # раскрыть секрет. Доступ — только через свойство .token.
+        self._token = token
         self.device_id = device_id
         self.my_id: Any = None
         self.chat_types: dict[Any, str] = {}
@@ -127,6 +129,18 @@ class MaxUserClient:
         self._on_message_cb: Callable[[UserMessage], Awaitable[None]] | None = None
         self._on_disconnect_cb: Callable[[], Awaitable[None]] | None = None
         self._first_connect = True
+
+    # ── security helpers ───────────────────────────────────────────
+
+    @property
+    def token(self) -> str:
+        return self._token
+
+    def __repr__(self) -> str:  # защита от случайного дампа секрета
+        return f"<MaxUserClient device_id={self.device_id!r} token=***>"
+
+    def __str__(self) -> str:  # pragma: no cover - зеркало __repr__
+        return self.__repr__()
 
     # ── callback registration ──────────────────────────────────────
 

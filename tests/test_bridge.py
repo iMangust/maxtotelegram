@@ -191,3 +191,43 @@ async def test_store_chat_registry_sqlite(tmp_path) -> None:
     await store.forget_chat(123)
     assert await store.known_chat_ids() == set()
     await store.close()
+
+
+# ── безопасность команд Telegram-контроллера ─────────────────────
+
+def test_command_guard_owner_only_by_default():
+    """Без белого списка команды должен принимать только владелец (TG_CHAT_ID)."""
+    from bridge.config import Settings
+    from bridge.store import MessageStore
+    from bridge.tg_commands import BridgeCommands
+
+    s = Settings(max_token="m", tg_token="t", default_tg_chat=-100)
+    b = BridgeCommands(s, MessageStore(":memory:"))
+    assert b.is_allowed(-100) is True          # владелец
+    assert b.is_allowed(999) is False          # посторонний
+    assert b.is_allowed(None) is False         # аноним
+
+
+def test_command_guard_whitelist_overrides():
+    from bridge.config import Settings
+    from bridge.store import MessageStore
+    from bridge.tg_commands import BridgeCommands
+
+    s = Settings(
+        max_token="m", tg_token="t", default_tg_chat=-100,
+        allowed_tg_user_ids=(777,),
+    )
+    b = BridgeCommands(s, MessageStore(":memory:"))
+    assert b.is_allowed(777) is True
+    assert b.is_allowed(-100) is False  # белый список важнее значения по умолчанию
+
+
+def test_settings_repr_hides_tokens():
+    from bridge.config import Settings
+
+    s = Settings(max_token="BOT-TOKEN", tg_token="TG-TOKEN",
+                 max_user_token="USER-TOKEN")
+    text = repr(s)
+    assert "BOT-TOKEN" not in text
+    assert "TG-TOKEN" not in text
+    assert "USER-TOKEN" not in text

@@ -66,6 +66,13 @@ class Settings:
     pinned_tag: str = ""
     debug: bool = False
 
+    def __repr__(self) -> str:  # защита токенов от случайного дампа в логи
+        return (
+            f"Settings(mode={self.mode!r}, max_token=***, "
+            f"max_user_token=***, tg_token=***, "
+            f"default_tg_chat={self.default_tg_chat!r})"
+        )
+
     def telegram_target(self, max_chat_id: str | int) -> int | None:
         """Возвращает чат Telegram, куда нужно переслать сообщение из чата MAX."""
         key = str(max_chat_id)
@@ -117,7 +124,18 @@ def load_settings(env_file: str | None = None) -> Settings:
 
     mode = optional("MAX_MODE").lower() or "auto"
     max_token = optional("MAX_BOT_TOKEN")
+    # Токен личного аккаунта можно передать и через файл (безопаснее .env):
+    # MAX_USER_TOKEN_FILE=/run/secrets/max_token или ~/secrets/max_token.txt
     max_user_token = optional("MAX_USER_TOKEN")
+    max_user_token_file = optional("MAX_USER_TOKEN_FILE")
+    if max_user_token_file:
+        try:
+            with open(os.path.expanduser(max_user_token_file), encoding="utf-8") as fh:
+                max_user_token = fh.read().strip() or max_user_token
+        except OSError as exc:
+            raise ConfigError(
+                f"Не удалось прочитать MAX_USER_TOKEN_FILE ({max_user_token_file}): {exc}"
+            ) from exc
     max_device_id = optional("MAX_DEVICE_ID")
     if mode == "auto":
         mode = "user" if (max_user_token and max_device_id) else "bot"
@@ -129,6 +147,13 @@ def load_settings(env_file: str | None = None) -> Settings:
         raise ConfigError(
             "Для режима user нужны MAX_USER_TOKEN и MAX_DEVICE_ID "
             "(см. README: Local Storage на web.max.ru)"
+        )
+    if mode == "user" and not optional_bool("USER_MODE_ACK"):
+        raise ConfigError(
+            "Режим user использует НЕОФИЦИАЛЬНЫЙ протокол личного аккаунта MAX "
+            "(нарушает пользовательское соглашение, есть риск блокировки; токен "
+            "даёт полный доступ к аккаунту). Если вы понимаете риски и согласны, "
+            "добавьте в конфигурацию строку: USER_MODE_ACK=yes"
         )
 
     def id_list(name: str) -> frozenset[str]:
