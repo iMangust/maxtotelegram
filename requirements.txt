@@ -1,0 +1,5 @@
+maxapi>=1.2,<2
+aiogram>=3.15,<4
+aiosqlite>=0.20
+aiohttp>=3.9
+python-dotenv>=1.0
